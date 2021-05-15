@@ -25,7 +25,6 @@ void hookSpace::THookDevice::onHookRun(){
         emit hookDeviceRunned();
         return;
     }
-
     bool test = AXIsProcessTrusted();
     qDebug() << "Process trusted: "<<test << endl;
     if(test){
@@ -79,7 +78,6 @@ void hookSpace::THookMouse::signalProcessing(void *event_data){
     Q_ASSERT(e);
     if (mouseDown) {
         CGPoint currentPos = [e locationInWindow];
-        //qDebug() << "mouse dragged" << endl;
         if (sqrt(pow(currentPos.x - lastCursorPos.x, 2) + pow(currentPos.y - lastCursorPos.y, 2)) > 24){
             TMouseEvent *currentEvent = createNewDragEvent(mouseDragTrack);
             if (!dragRun) {

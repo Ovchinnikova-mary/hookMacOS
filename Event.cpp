@@ -38,7 +38,7 @@ void hookSpace::TEvent::addImageName(QString* imName){
     imageNames->append(imName);
     qDebug() << "add image count: " << imageNames->count() << endl;
     screenSave = true;
-    //dynamic_cast<hookSpace::THookDevice*>(dev)->setScreenSave(true);
+
 }
 
 void hookSpace::TEvent::setModifiers(TModifier* m){
