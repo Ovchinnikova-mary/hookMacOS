@@ -1,0 +1,315 @@
+Файл mice:
+    Описание:
+        Содержит в себе информацию о событиях мыши. Каждое событие кодируется 3-мя байтами x0 x1 x2;
+        Файл mice находится в /dev/input/
+        x0 - "индентификатор" события
+        x1 - смещение по оси x
+        x2 - смещение по оси y
+        x1 и x2 показывают не совсем смещение, скорее скорость смещения мыши (более подробно не разбирался, т.к. не понадобилось)
+
+    Сигналы Мыши:
+        Правый клик: 10 0 0
+        Левый клик: 9 0 0
+        Нажатие колёсика: 12 0 0
+
+        8 0 0 - отпустить кнопку
+
+        Движение мыши вверх: 8 0 +?
+                      вниз: 40 0 -?
+                      вправо: 8 +? 0
+                      влево: 24 -? 0
+
+                      вправо и вверх: 8 +? +?
+                      вправо и вниз: 40 +? -?
+                      влево и вниз: 56 -? -?
+                      влево и вверх: 24 -? +?
+
+        Движение с зажатой ЛКМ:
+            При движении вверх: 9 0 +?
+                         вниз: 41 0 -?
+                         вправо: 9 +? 0
+                         влево: 25 -? 0
+
+                         вправо и вверх: 9 +? +?
+                         вправо и вниз: 41 +? -?
+                         влево и вниз: 57 -? -?
+                         влево и вверх: 25 -? +?
+
+        !!! События прокрутки колёсика мыши вверх и вниз инициализируются, как событие отпускания кнопки (8 0 0). Из-за этого использование данного файла не даёт возможность получения всех триггеров
+
+Файл inpute4:
+    Описание:
+        Содердит в себе информацию о событиях клавиатуры (скан-коды). Тип раскладки клавиатуры не воспринимается. Кнопка Fn не воспринимается.
+        Каждой клавише клавиатуры назначен свой код:
+            Esc = 1
+            1..Backspace = 2..14
+            Tab..] = 15..27
+            Enter = 28
+            LCtrl = 29
+            a..' = 30..40
+            ` = 41
+            Lshift = 42
+            \ = 43 (над Enter)
+            z..RShift = ..44..54
+            * (NumPad) = 55
+            LAlt = 56
+            Space = 57
+            CapsLock = 58
+            F1..F10 = 59..68
+            NumLock = 69
+            7..9 (NumPad) == 71..73
+            - (NumPad) = 74
+            4..6 (NumPad) = 75..77
+            + (NumPad) = 78
+            1..3 (NumPad) = 79..81
+            0 (NumPad) = 82
+            . (NumPad) = 83
+
+            F11 = 87
+            F12 = 88
+
+            Enter (NumPad) = 96
+            RCtrl = 97
+            / (NumPad) = 98
+            PrtSc = 99
+            RAlt = 100
+
+            Home = 102
+            Up = 103
+            PgUp = 104
+            Left = 105
+            Right = 106
+            End = 107
+            Down = 108
+            PgDn = 109
+            Ins = 110
+            Del 111
+
+            Pause = 119
+
+            Pusk = 125
+
+            ? = 127
+        Нажатие клавиши кодируется несколькими "сообщениями". Каждое сообщение = 24 байтам:
+            0..7 - ?, возможно как-то связано со временем
+            8..15 - ?, возможно это "индентификатор сообщения" (у группы сообщений, привязанной к одному событию, значения одинаковы)
+            16..23 - "информация сообщения"
+        "Информация сообщения" может быть разной, но о нажатой клавиши говорит сообщение: 1 0 X2 0 X4 0 0 0
+        X2: Код клавиши
+        X4: 0 - Клавишу отпустили
+            1 - Клавишу нажали
+            2 - Клавиша зажата
+
+
+// Попытка сделать иконку на панели уведомлений
+    QPixmap *pix = new QPixmap(22,22);
+    QPainter *Paint = new QPainter(pix);
+    Paint->setPen(QPen(Qt::black, 1, Qt::SolidLine, Qt::FlatCap));
+    Paint->setBrush(QBrush(Qt::red, Qt::SolidPattern));
+    Paint->drawEllipse(0, 0, 20, 20);
+    ic = new QSystemTrayIcon(QIcon(*pix));
+    //ic->setIcon(myIcon);
+    ic->setContextMenu(new QMenu(this));
+    ic->show();
+
+
+// Старый TEvent
+/*
+class hookSpace::TEvent : public QObject{
+Q_OBJECT
+public:
+    int countClick;
+    QList<QPoint> clickPoints;
+    QList<QByteArray> images;
+
+    TEvent();
+
+    void addKey(QString);
+    void addKey(ModifierNames);
+    void addModifier(ModifierNames, QString);
+    void addMouseClick(int type, QPoint);
+    void addMouseWheel(int);
+    void removeModifier(ModifierNames);
+
+    void clearWithoutModifier();
+
+public slots:
+    void convertEvent(int type = 0);
+    void clearAll();
+
+signals:
+    void convertDone(QString *data);
+    void convertError();
+
+private:
+    QString key, typeEvent, mouseButton, typeWay;
+    TModifier modifier;
+    TypesOfEvents type;
+
+    void convert();
+};
+*/
+
+/*
+hookSpace::TEvent::TEvent(){
+    countClick = 0, type = noType;
+}
+
+void hookSpace::TEvent::addKey(QString k){
+    key = k;
+    typeEvent = "keyPress";
+    type = keyPres;
+}
+
+void hookSpace::TEvent::addKey(ModifierNames m){
+// Добавляет модификатор в качестве события нажания клавиши
+    if((m == alt) && modifier.alt){
+        modifier.alt = 0;
+    }
+    if((m == ctrl) && modifier.ctrl){
+        modifier.ctrl = 0;
+    }
+    if((m == shift) && modifier.shift){
+        modifier.shift = 0;
+    }
+    if((m == win) && modifier.win){
+        modifier.win = 0;
+    }
+    typeEvent = "keyPress";
+    type = keyPres;
+}
+
+void hookSpace::TEvent::addModifier(ModifierNames m, QString k){
+    if(m == alt){ modifier.alt = 1; }
+    if(m == ctrl){ modifier.ctrl = 1; }
+    if(m == shift){ modifier.shift = 1; }
+    if(m == win){ modifier.win = 1; }
+    key = k;
+}
+
+void hookSpace::TEvent::addMouseClick(int typeID, QPoint p){
+    clickPoints.push_back(p);
+    typeEvent = "mouseClick";
+    type = mouseClick;
+    if (typeID == 0) { mouseButton = "Left";}
+    if (typeID == 1) { mouseButton = "Right";}
+}
+
+void hookSpace::TEvent::addMouseWheel(int way){
+// Добавляет событие прокрутки колёсика
+// На вход целое число: 0 - прокрутка вниз, 1 - прокрутка вверх
+    typeEvent = "mouseWheel";
+    type = mouseWheel;
+    if (way == 0)
+        typeWay = "Downward";
+    else
+        typeWay = "Upward";
+}
+
+void hookSpace::TEvent::clearAll(){
+    key.clear(), modifier.clear(), clickPoints.clear(), mouseButton.clear(), countClick = 0;
+    type = noType, typeWay.clear();
+}
+
+void hookSpace::TEvent::clearWithoutModifier(){
+    key.clear(), clickPoints.clear(), countClick = 0, mouseButton.clear();
+    type = noType, typeWay.clear();
+}
+
+void hookSpace::TEvent::removeModifier(ModifierNames m){
+    if (m == ctrl){ modifier.ctrl = false; }
+    if (m == alt){ modifier.alt = false; }
+    if (m == shift){ modifier.shift = false; }
+    if (m == win){ modifier.win = false; }
+}
+
+void hookSpace::TEvent::convertEvent(int dragType){
+// type принимает 4 значения:
+// 0) не является событием перетаскивания 1) mouseDragStart 2) mouseDragTrack 3) mouseDragStop
+    switch (dragType) {
+    case 1:
+        typeEvent = "mouseDragStart", type = mouseDragStart;
+        break;
+    case 2:
+        typeEvent = "mouseDragTrack", type = mouseDragTrackStop;
+        break;
+    case 3:
+        typeEvent = "mouseDragStop", type = mouseDragTrackStop;
+        break;
+    default:
+        if(dragType != 0){
+            writeLog("Understand type id in function SendDrag");
+            emit convertError();
+            return;
+        }
+    }
+    convert();
+}
+
+void hookSpace::TEvent::convert(){
+    QTime time = QTime::currentTime();
+    long long msTime = (((long long)(time.hour()) * 60 + time.minute()) * 60 + time.second()) * 1000 + time.msec();
+    QPoint p;
+    if (!clickPoints.isEmpty()){
+        p = clickPoints.first();
+        clickPoints.pop_front();
+    }
+    QString mod = modifier.toQString();
+    QString *data = new QString;
+    QXmlStreamWriter xmlWriter(data);
+
+    while(images.isEmpty()) {}
+    QByteArray ba = images.first();
+    images.pop_front();
+
+    xmlWriter.writeStartElement("content.snapshot");
+    xmlWriter.writeAttribute("type", typeEvent);
+    xmlWriter.writeAttribute("time", QString::number(msTime)); // и в этом?
+
+    xmlWriter.writeStartElement("picture");
+    xmlWriter.writeAttribute("size", QString::number(ba.length()));
+    xmlWriter.writeCharacters(ba.toBase64());
+    xmlWriter.writeEndElement();
+
+    if(mod.length()){
+        xmlWriter.writeStartElement("mod");
+        xmlWriter.writeCharacters(mod);
+        xmlWriter.writeEndElement();
+    }
+
+    if (type != mouseDragTrackStop && type != noType)
+        xmlWriter.writeStartElement("event");
+    if(type == keyPres)
+        xmlWriter.writeAttribute("key", key);
+    if(type == mouseClick || type == mouseDragStart)
+        xmlWriter.writeAttribute("button", mouseButton);
+    if(type == mouseClick)
+        xmlWriter.writeAttribute("count", QString::number(countClick));
+    if(type == mouseWheel)
+        xmlWriter.writeAttribute("way", typeWay);
+    if(type == mouseClick || type == mouseDragStart || type == mouseDragTrackStop){
+        xmlWriter.writeStartElement("point");
+        xmlWriter.writeAttribute("x", QString::number(p.x()));
+        xmlWriter.writeAttribute("y", QString::number(p.y()));
+        xmlWriter.writeEndElement();
+    }
+    if(type == mouseClick){
+        xmlWriter.writeStartElement("window");
+        xmlWriter.writeAttribute("x", QString::number(0));
+        xmlWriter.writeAttribute("y", QString::number(0));
+        xmlWriter.writeAttribute("width", QString::number(500));
+        xmlWriter.writeAttribute("height", QString::number(500));
+        xmlWriter.writeEndElement();
+    }
+
+    if (type != mouseDragTrackStop && type != noType)
+        xmlWriter.writeEndElement();   // event
+    xmlWriter.writeEndElement();   // content.snapshot
+
+    if (xmlWriter.hasError())
+        emit convertError();
+    else
+        emit convertDone(data);
+    countClick = 0, mouseButton.clear(), type = noType;
+}
+*/

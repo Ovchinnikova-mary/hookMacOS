@@ -1,0 +1,622 @@
+#ifndef THOOK_H
+#define THOOK_H
+#endif // THOOK_H
+
+#include <fstream>
+
+#include <QString>
+#include <QTime>
+#include <QMutex>
+
+#include "Event.h"
+#include "Client.h"
+
+namespace hookSpace {
+    class THook;
+
+    void getScreen(int number, QList<QByteArray> *l);
+    void runHookKey(THook *h);
+    void runHookMouse(THook *h);
+    void runTimer(THook *h);
+}
+
+class hookSpace::THook : public QObject{
+Q_OBJECT
+public:
+    THook();
+    ~THook();
+
+// Поля
+    bool timerRun, stopTimer;
+    QTime timeOfClick;
+
+    TEvent event;
+
+// Методы
+    void setFileMouseName(char*);
+    void setFileKeyName(char *);
+    void getKey();
+    void getMouse();
+    void runHook();
+    void stopHook();
+    void convertEvent(int dragType = 0);
+
+private:
+// Поля
+    TClient client;
+
+    int countScreen;
+    QPoint lastCursorPos;
+    char FileKeyName[100], FileMouseName[100];
+
+    std::FILE *FileKey;
+    std::FILE *FileMouse;
+    bool flagRunHook,
+         eventStatus,   // false - новое событие, true - событие недавно было отправлено и новых прерываний не было
+         dragRun,
+         mouseDown;
+    QMutex mutex;
+
+// Методы
+    void addKey(int keyCode, int codeEvent);
+    void addMouseEvent(int x0, int x1, int x2);
+    QString searchKey(int keyCode);
+    ModifierNames modifierName(int keyCode);
+    void changeEventStatus(bool status);
+
+public slots:
+    void onConnectionRequest(QString ip, int port);
+    void onConvertionDone(QString *event);
+    void onDisconnected();
+
+signals:
+    void sendData(QString *data);
+    void convertionRequest(int dragType = 0);
+
+    void hookStarted();
+    void hookStopped();
+    void errorStart();
+    void socketDisconnected();
+    void connectionDone();
+    void connectionFailed();
+};
+
+
+
+
+-----------------------------------------------------------------
+
+
+
+
+
+#include <QtConcurrent/QtConcurrent>
+#include <QFile>
+#include <QCursor>
+
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+#include "Hook.h"
+
+hookSpace::StatusEvent::StatusEvent(){
+    New = true, mutexStatus = 0;
+}
+
+hookSpace::StatusEvent::StatusEvent(QMutex *mutexStat) : hookSpace::StatusEvent::StatusEvent(){
+    mutexStatus = mutexStat;
+}
+
+bool hookSpace::StatusEvent::isNew(){
+    if(mutexStatus) mutexStatus->lock();
+    bool res = New;
+    if(mutexStatus) mutexStatus->unlock();
+    return res;
+}
+
+void hookSpace::StatusEvent::changeStatus(bool isNew){
+    if(mutexStatus) mutexStatus->lock();
+    New = isNew;
+    if(mutexStatus) mutexStatus->unlock();
+}
+
+void hookSpace::StatusEvent::setMutex(QMutex *mutexStat){
+    mutexStatus = mutexStat;
+}
+
+hookSpace::THookDevice::THookDevice(TModifier *modif, StatusEvent *stat) : QObject(){
+    modifier = modif, status = stat;
+    event = 0, isRun = false, countScreen = 0;
+}
+
+hookSpace::THookDevice::~THookDevice(){
+    if(driverFile) std::fclose(driverFile);
+}
+
+void hookSpace::THookDevice::setFileName(char *name){
+    strcpy(fileName, name);
+}
+
+void hookSpace::THookDevice::onHookRun(){
+    if(isRun){
+        emit hookRun();
+        return;
+    }
+
+    driverFile = std::fopen(fileName, "r");
+    if(driverFile){
+        isRun = true;
+        QtConcurrent::run(this, &hookSpace::THookDevice::run);
+        emit hookRun();
+    }
+    else
+        emit hookError();
+}
+
+void hookSpace::THookDevice::onHookStop(){
+    isRun = false;
+    emit hookStop();
+}
+
+void hookSpace::THookDevice::run(){
+    FILE *file = driverFile;
+
+    while(isRun && file == driverFile)
+        hookSpace::THookDevice::getEvent();
+
+    std::fclose(file);
+}
+
+void hookSpace::THookDevice::getScreen(TEvent *event){
+// К сожалению, пока так. Но и это вполне эффективно
+    QString name = "./Images/" + hookSpace::THookDevice::generateImageName() + ".png";
+    QString command = "scrot " + name;
+    system(command.toLatin1().data());
+
+    QFile im(name);
+    im.open(QIODevice::ReadOnly);
+    QByteArray *imBytes = new QByteArray(im.readAll());
+    event->addImage(imBytes);
+    im.remove();
+    im.close();
+}
+
+void hookSpace::THookDevice::sendEvent(){
+    status->changeStatus(false);
+    event->setModifiers(modifier->getModifiers());
+    emit eventReady(event);
+    event = 0;
+}
+
+hookSpace::THookMouse::THookMouse(TModifier *modif, StatusEvent *stat)
+    : hookSpace::THookDevice::THookDevice(modif, stat)
+{
+    timerRun = false, mouseDown = false;
+    dragRun = false;
+}
+
+void hookSpace::THookMouse::getEvent(){
+    char buf[3];
+    FILE *fileMouse = driverFile;
+    if (std::fread(buf, 1, 3, FileMouse) && isRun && fileMouse == driverFile)
+        signalProcessing(buf[0], buf[1], buf[2]);
+}
+
+QString hookSpace::THookMouse::generateImageName(){
+    return "MouseEvent" + QString::number(countScreen++);
+}
+
+hookSpace::TMouseEvent* hookSpace::THookMouse::createNewDragEvent(TypesOfEvents typeDrag){
+    TMouseEvent *ev = new TMouseEvent(typeDrag);
+    QtConcurrent::run(this, &hookSpace::THookMouse::getScreen, ev);
+    status->changeStatus(true);
+    return ev;
+}
+
+hookSpace::TMouseEvent* hookSpace::THookMouse::createNewClickEvent(TypesOfMouseButton typeButton){
+    TMouseEvent *ev = new TMouseEvent(typeButton);
+    QtConcurrent::run(this, &hookSpace::THookMouse::getScreen, ev);
+    status->changeStatus(true);
+    return ev;
+}
+
+hookSpace::TMouseEvent* hookSpace::THookMouse::createNewScrollEvent(Ways way){
+    TMouseEvent *ev = new TMouseEvent(way);
+    QtConcurrent::run(this, &hookSpace::THookMouse::getScreen, ev);
+    status->changeStatus(true);
+    return ev;
+}
+
+void hookSpace::THookMouse::runTimer(TEvent *event1){
+    while(timerRun && dynamic_cast<hookSpace::TMouseEvent*>(event1)->getCountClick() != 2 && timeOfClick.msecsTo(QTime::currentTime()) < 500)  { }
+    // пол секунды на то, чтобы сделать второй клик, значение практически выдумано
+
+    status->changeStatus(false);
+    emit eventReady(event1);
+}
+
+void hookSpace::THookMouse::signalProcessing(int x0, int x1, int x2){
+// Обрабатывает события мыши
+// На вход 3 числа: x0 - код события, x1 и x2 - движение курсора по координатам x и y
+// x0 = { 8 - отпустили; 9 - ЛКМ; 10 - ПКМ }
+// P.S. Сигнал 8 0 0 приходит в трёх случаях: 1) кнопку мыши отпустили; 2) прокрутили колёсико вверх; 3) прокрутка колёсика вниз
+// Из-за этого точно индентефецировать направление прокрутки колёсика мыши данным способом невозможно
+// Сохранение события клика кнопки мыши происходит в ф-ии runTimer
+
+    if (mouseDown && (x1 || x2)) {
+    // Перетаскивание
+        QPoint currentPos = QCursor::pos();
+        if (sqrt(pow(currentPos.x() - lastCursorPos.x(), 2) + pow(currentPos.y() - lastCursorPos.y(), 2)) > 24){
+            TMouseEvent *currentEvent = createNewDragEvent(mouseDragTrack);
+
+            if (!dragRun) {
+                dragRun = true;
+                dynamic_cast<hookSpace::TMouseEvent*>(event)->setAsDragStart();
+                sendEvent();
+            }
+            currentEvent->setPoint(currentPos);
+            event = currentEvent;
+            sendEvent();
+            lastCursorPos = currentPos;
+        }
+    }
+
+    if (!mouseDown && (x0 == 9 || x0 == 10)){
+    // Нажатие кнопки мыши
+        TypesOfMouseButton type = (x0 == 9) ? Left : Right;
+        if (!event || x0 == 10){
+            event = createNewClickEvent(type);
+        }
+        QPoint currentPos = QCursor::pos();
+        if (dynamic_cast<hookSpace::TMouseEvent*>(event)->getCountClick())
+            if (abs(currentPos.x() - lastCursorPos.x()) > 10 || abs(currentPos.y() - lastCursorPos.y()) > 10) {
+            // если условие НЕ выполняется, то это двойной клик ЛКМ,
+            // а иначе, пользователь слишком шустро тыкает в разные области экрана
+            // значение 10-ти пикселей было взято из головы, возможно, оно не оптимально (погрешность, мало ли руки дрожат)
+                timerRun = false;
+                event = createNewClickEvent(type);
+            }
+
+        lastCursorPos = currentPos, mouseDown = true;
+        dynamic_cast<hookSpace::TMouseEvent*>(event)->addClick();
+
+        if (dynamic_cast<hookSpace::TMouseEvent*>(event)->getCountClick()) {
+            dynamic_cast<hookSpace::TMouseEvent*>(event)->setPoint(currentPos);
+            if (type == Left) { timeOfClick = QTime::currentTime(); }
+        }
+    }
+
+    if (!mouseDown && x0 == 8 && !(x1 || x2)){
+    // Движение колёсика
+        event = createNewScrollEvent(Upward);
+        sendEvent();
+    }
+
+    if (mouseDown && x0 == 8 && !(x1 || x2)) {
+    // Отпускание кнопки мыши
+        TMouseEvent *currentEvent = dynamic_cast<hookSpace::TMouseEvent*>(event);
+        mouseDown = false;
+        if(event && currentEvent->getTypeEvent() == mouseClick && currentEvent->getTypeButton() == Left){
+            timerRun = true;
+            QtConcurrent::run(this, hookSpace::runTimer, dynamic_cast<hookSpace::TMouseEvent*>(event));
+        }
+        if(dragRun){
+            event = createNewDragEvent(mouseDragStop);
+            dynamic_cast<hookSpace::TMouseEvent*>(event)->setPoint(QPoint::pos());
+            dragRun = false;
+            sendEvent();
+        }
+    }
+}
+
+hookSpace::THookKeyboard::THookKeyboard(TModifier *modif, StatusEvent *stat)
+    : hookSpace::THookDevice::THookDevice(modif, stat)
+{
+
+}
+
+void hookSpace::THookKeyboard::getEvent(){
+    char buf[24];
+    FILE fileKeyboard = driverFile;
+    if(fread(buf, 1, 24, fileKeyboard) && isRun && fileKeyboard == driverFile && buf[16] == 1 && buf[17] == 0 && buf[19] == 0 && buf[20] != 2)
+        signalProcessing(buf[18], buf[20]);
+}
+
+QString hookSpace::THookKeyboard::generateImageName(){
+    return "KeyBoardEvent" + QString::number(countScreen++);
+}
+
+void hookSpace::THookKeyboard::signalProcessing(int keyCode, int eventCode){
+// обрабатывает событие клавиатуры
+// eventCode - тип события (0 - отпустили клавишу, 1 - нажали, 2 - зажата)
+    ModifierNames modifierKey = modifierName(keyCode);
+    if(eventCode == 0){
+        if (modifierKey != no)
+            if (status->isNew()){
+                dynamic_cast<hookSpace::TKeyPressEvent*>(event)->setKey(searchKey(keyCode));
+                modifier->removeModifier(modifierKey);
+                sendEvent();
+            }
+            else
+                modifier->removeModifier(modifierKey);
+    }
+
+    if(eventCode == 1){
+        if (!event)
+            event = new TKeyPressEvent();
+        if (modifierKey != no)
+            modifier->addModifier(modifierKey);
+        else{
+            dynamic_cast<hookSpace::TKeyPressEvent*>(event)->setKey(searchKey(keyCode));
+            sendEvent();
+        }
+    }
+}
+
+
+
+hookSpace::THook::THook() : QObject(){
+    FileMouse = 0, FileKey = 0;
+    countScreen = 0;
+    flagRunHook = false, eventStatus = false, timerRun = false, dragRun = false, mouseDown = false, stopTimer = false;
+
+    connect(&client, &QTcpSocket::disconnected, this, &hookSpace::THook::onDisconnected);
+    connect(this, &hookSpace::THook::convertionRequest, &event, &hookSpace::TEvent::convertEvent);
+    connect(&event, &hookSpace::TEvent::convertDone, this, &hookSpace::THook::onConvertionDone);
+    connect(this, &hookSpace::THook::sendData, &client, &hookSpace::TClient::onSendMessage);
+    connect(&client, &QTcpSocket::disconnected, &event, &hookSpace::TEvent::clearAll);
+    connect(this, &hookSpace::THook::hookStopped, &event, &hookSpace::TEvent::clearAll);
+}
+
+hookSpace::THook::~THook(){
+    flagRunHook = false;
+    if (FileKey) { std::fclose(FileKey); }
+    if (FileMouse) { std::fclose(FileMouse); }
+}
+
+void hookSpace::THook::onDisconnected(){
+    stopHook();
+    emit socketDisconnected();
+}
+
+void hookSpace::THook::onConnectionRequest(QString ip, int port){
+    client.connectToHost(ip, port);
+    if (!client.waitForConnected(3000))
+        emit connectionFailed();
+    else
+        emit connectionDone();
+}
+
+void hookSpace::THook::onConvertionDone(QString *event){
+    if(flagRunHook)
+        emit sendData(event);
+    else
+        delete event;
+}
+
+void hookSpace::THook::runHook(){
+    if(client.state() != QTcpSocket::ConnectedState)
+        emit errorStart();
+    if(flagRunHook)
+        return;
+    FileMouse = std::fopen(FileMouseName, "r");
+    FileKey = std::fopen(FileKeyName, "r");
+    if (FileKey && FileMouse){
+        QString *data = new QString;
+        QXmlStreamWriter xmlWriter(data);
+        xmlWriter.writeStartElement("content.start");
+        xmlWriter.writeEndElement();
+        emit sendData(data);
+
+        flagRunHook = true;
+        QtConcurrent::run(hookSpace::runHookKey, this);
+        QtConcurrent::run(hookSpace::runHookMouse, this);
+        emit hookStarted();
+    }
+    else{
+        if(FileKey) std::fclose(FileKey);
+        if(FileMouse) std::fclose(FileMouse);
+        emit errorStart();
+        writeLog("Error run hook");
+    }
+}
+
+void hookSpace::THook::stopHook(){
+    if(flagRunHook){
+        flagRunHook = false;
+        QString *data = new QString;
+        QXmlStreamWriter xmlWriter(data);
+        xmlWriter.writeStartElement("content.stop");
+        xmlWriter.writeEndElement();
+        emit sendData(data);
+        emit hookStopped();
+    }
+}
+
+void hookSpace::THook::setFileKeyName(char *name){
+    strcpy(FileKeyName, name);
+}
+
+void hookSpace::THook::setFileMouseName(char *name){
+    strcpy(FileMouseName, name);
+}
+
+void hookSpace::THook::changeEventStatus(bool status){
+    mutex.lock();
+    eventStatus = status;
+    mutex.unlock();
+}
+
+void hookSpace::THook::convertEvent(int dragType){
+// dragType принимает 4 значения:
+// 0 - не является событием перетаскивания; 1 - mouseDragStart; 2 - mouseDragTrack; 3 - mouseDragStop
+    changeEventStatus(true);
+    emit convertionRequest(dragType);
+}
+
+void hookSpace::THook::getKey(){
+    char buf[24];
+    while(flagRunHook)
+        if(fread(buf, 1, 24, FileKey) && flagRunHook && buf[16] == 1 && buf[17] == 0 && buf[19] == 0 && buf[20] != 2)
+            addKey(buf[18], buf[20]);
+}
+
+void hookSpace::THook::addKey(int keyCode, int eventCode){
+// обрабатывает и добавляет событие клавиатуры
+// eventCode - тип события (0 - отпустили клавишу, 1 - нажали, 2 - зажата)
+    ModifierNames modifierKey = modifierName(keyCode);
+    switch (eventCode) {
+    case 0:
+        while(event.countClick) { }
+        if (modifierKey != no){
+            if (eventStatus){
+                event.removeModifier(modifierKey);}
+            else{
+                QtConcurrent::run(getScreen, ++countScreen, &event.images);
+                event.addKey(modifierKey);
+                convertEvent();
+            }
+        }
+        break;
+
+    case 1:
+        changeEventStatus(false);
+        if (modifierKey != no){
+            event.addModifier(modifierKey, searchKey(keyCode)); }
+        else{
+            QtConcurrent::run(getScreen, ++countScreen, &event.images);
+            event.addKey(searchKey(keyCode));
+            convertEvent();
+        }
+        break; }
+}
+
+hookSpace::ModifierNames hookSpace::THook::modifierName(int keyCode){
+    ModifierNames res = no;
+    if (keyCode == 29 || keyCode == 97){ res = ctrl; }
+    if (keyCode == 42 || keyCode == 54){ res = shift; }
+    if (keyCode == 56 || keyCode == 100){  res = alt; }
+    if (keyCode == 125){ res = win; }
+    return res;
+}
+
+QString hookSpace::THook::searchKey(int keyCode){
+    QFile KeyFile("./KeyCodes.txt");
+    if(!KeyFile.open(QIODevice::ReadOnly | QIODevice::Text))
+        return "";
+
+    QTextStream in(&KeyFile);
+    for (int i = 1; i < keyCode; in.readLine(), i++) { }
+    QString res = in.readLine();
+
+    KeyFile.close();
+    return res;
+}
+
+void hookSpace::THook::getMouse(){
+    char buf[3];
+    while(flagRunHook) {
+        if (std::fread(buf, 1, 3, FileMouse) && flagRunHook) {
+            addMouseEvent(buf[0], buf[1], buf[2]); } }
+    std::fclose(FileMouse);
+}
+
+void hookSpace::THook::addMouseEvent(int x0, int x1, int x2){
+// Обрабатывает события мыши
+// На вход 3 числа: x0 - код события, x1 и x2 - движение курсора по координатам x и y
+// x0 = { 8 - отпустили; 9 - ЛКМ; 10 - ПКМ }
+// P.S. Сигнал 8 0 0 приходит в трёх случаях: 1) кнопку мыши отпустили; 2) прокрутили колёсико вверх; 3) прокрутка колёсика вниз
+// Из-за этого точно индентефецировать направление прокрутки колёсика мыши данным способом невозможно
+// Сохранение события (за исключением перетаскивания) происходит в ф-ии runTimer
+    if (mouseDown && (x1 || x2)) {
+    // Перетаскивание
+        QPoint currentPos = QCursor::pos();
+
+        if (sqrt(pow(currentPos.x() - lastCursorPos.x(), 2) + pow(currentPos.y() - lastCursorPos.y(), 2)) > 32){
+            QtConcurrent::run(getScreen, ++countScreen, &event.images);
+            if (!dragRun) {
+                dragRun = true;
+                convertEvent(1);
+            }
+            event.clickPoints.push_back(currentPos);
+            convertEvent(2);
+            lastCursorPos = currentPos;
+        }
+    }
+
+    if (!mouseDown && (x0 == 9 || x0 == 10)){
+    // Нажатие кнопки мыши
+        if (!event.countClick || x0 == 10)
+            QtConcurrent::run(getScreen, ++countScreen, &event.images);
+        QPoint currentPos = QCursor::pos();
+        if (event.countClick) {
+            if (x0 == 0 || abs(currentPos.x() - lastCursorPos.x()) > 10 || abs(currentPos.y() - lastCursorPos.y()) > 10) {
+            // если условие не выполняется, то это двойной клик ЛКМ,
+            // а иначе, пользователь слишком шустро тыкает в разные области экрана или нажатие ПКМ
+            // значение 10-ти пикселей было взято из головы, возможно, оно не оптимально (погрешность, мало ли руки дрожат)
+                stopTimer = true;
+                while (timerRun) { }
+            }
+        }
+
+        lastCursorPos = currentPos;
+        mouseDown = true, event.countClick++;
+
+        int type = (x0 == 9) ? 0 : 1;
+        if (event.countClick == 1) {
+            event.addMouseClick(type, currentPos);
+            if (!type) { timeOfClick = QTime::currentTime(); }
+        }
+    }
+
+    if (!mouseDown && x0 == 8 && !(x1 || x2)){
+    // Движение колёсика
+       QtConcurrent::run(getScreen, ++countScreen, &event.images);
+       event.addMouseWheel(1);
+       convertEvent();
+    }
+
+    if (mouseDown && x0 == 8 && !(x1 || x2)) {
+    // Отпускание кнопки мыши
+        mouseDown = false;
+        if(event.countClick == 1 && !dragRun){
+            timerRun = true, stopTimer = false, QtConcurrent::run(hookSpace::runTimer, this); }
+        if(dragRun){
+            QtConcurrent::run(getScreen, ++countScreen, &event.images);
+            dragRun = false;
+            event.clickPoints.push_back(QCursor::pos());
+            convertEvent(3);
+        }
+    }
+}
+
+void hookSpace::runTimer(THook *h){
+    while(!h->stopTimer && h->event.countClick != 2 && h->timeOfClick.msecsTo(QTime::currentTime()) < 500)  { }
+    // пол секунды на то, чтобы сделать второй клик, значение взято из головы
+
+    h->convertEvent();
+    h->timerRun = false;
+}
+
+void hookSpace::getScreen(int countScreen, QList<QByteArray> *l){
+// К сожалению, пока так. Но и это вполне эффективно
+    QString name = "./Images/" + QString::number(countScreen) + ".png",
+            command = "scrot " + name;
+    system(command.toLatin1().data());
+
+    QFile im(name);
+    im.open(QIODevice::ReadOnly);
+    QByteArray imBytes = im.readAll();
+    l->push_back(imBytes);
+    im.remove();
+    im.close();
+}
+
+void hookSpace::runHookKey(THook *h){
+    h->getKey();
+}
+
+void hookSpace::runHookMouse(THook *h){
+    h->getMouse();
+}

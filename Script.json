@@ -1,0 +1,61 @@
+{
+    "frames": [
+        {
+            "actionSwitch": {
+                "actionId": 1,
+                "xLeft": 486.43359375,
+                "xRight": 536.43359375,
+                "yLeft": 114.53125,
+                "yRight": 164.53125
+            },
+            "frameNumber": 1,
+            "pictureLink": "Images/MouseEvent0.png"
+        },
+        {
+            "actionSwitch": {
+                "actionId": 1,
+                "xLeft": 484.43359375,
+                "xRight": 534.43359375,
+                "yLeft": 147.5546875,
+                "yRight": 197.5546875
+            },
+            "frameNumber": 2,
+            "pictureLink": "Images/MouseEvent1.png"
+        },
+        {
+            "actionSwitch": {
+                "actionId": 1,
+                "xLeft": 807.41796875,
+                "xRight": 857.41796875,
+                "yLeft": 12.5546875,
+                "yRight": 62.5546875
+            },
+            "frameNumber": 3,
+            "pictureLink": "Images/MouseEvent2.png"
+        },
+        {
+            "actionSwitch": {
+                "actionId": 1,
+                "xLeft": 463.46484375,
+                "xRight": 513.46484375,
+                "yLeft": 110.5703125,
+                "yRight": 160.5703125
+            },
+            "frameNumber": 4,
+            "pictureLink": "Images/MouseEvent3.png"
+        },
+        {
+            "actionSwitch": {
+                "actionId": 5,
+                "xLeft": 463.46484375,
+                "xRight": 513.46484375,
+                "yLeft": 112.5625,
+                "yRight": 162.5625
+            },
+            "frameNumber": 5,
+            "pictureLink": "Images/MouseEvent4.png"
+        }
+    ],
+    "pictureHeight": 768,
+    "pictureWidth": 1024
+}
